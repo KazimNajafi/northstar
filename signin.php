@@ -11,6 +11,7 @@ if (isset($_SESSION['user_id'])) {
 $error = '';
 $username = '';
 $email = '';
+$next = safe_next_path(post_string('next')) ?? safe_next_path((string) ($_GET['next'] ?? '')) ?? '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = trim(post_string('username'));
@@ -56,7 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'username' => $username,
                 ]);
 
-                header('Location: home.php');
+                header('Location: ' . ($next !== '' ? $next : 'home.php'));
                 exit;
             }
         } catch (PDOException $exception) {
@@ -121,6 +122,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 <form id="register-form" class="form-stack" method="post" action="signin.php" novalidate>
                     <input type="hidden" name="csrf_token" value="<?= e(csrf_token()) ?>">
+                    <?php if ($next !== ''): ?>
+                        <input type="hidden" name="next" value="<?= e($next) ?>">
+                    <?php endif; ?>
                     <label class="field">
                         <span>Your name</span>
                         <input type="text" name="username" autocomplete="username" maxlength="80" value="<?= e($username) ?>" placeholder="e.g. Alex Morgan" required>
@@ -144,7 +148,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </button>
                 </form>
 
-                <p class="auth-switch">Already have an account? <a href="login.php">Sign in</a></p>
+                <p class="auth-switch">Already have an account? <a href="login.php<?= $next !== '' ? '?next=' . e(rawurlencode($next)) : '' ?>">Sign in</a></p>
                 <p class="fine-print">By continuing, you agree to keep your account details secure.</p>
             </div>
             <p class="panel-footnote">A little more clarity, every day.</p>
