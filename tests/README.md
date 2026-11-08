@@ -4,9 +4,9 @@ The test suite has three layers:
 
 | File | What it checks |
 | --- | --- |
-| `unit.php` | Output escaping, request helpers, CSRF tokens, password hashing, error-message redaction, and session sign-in. |
-| `integration.php` | MySQL uniqueness, prepared statements, password verification, account-scoped queries, ordering, SQL-injection resistance, and cascade deletion. |
-| `http.sh` | Registration, login, dashboard protection, CSRF rejection, sign-out, validation errors, and multi-user isolation over HTTP. |
+| `unit.php` | Output escaping, request helpers, CSRF tokens, password hashing, error-message redaction, price/date/guest helpers, redirect safety, and session sign-in. |
+| `integration.php` | MySQL uniqueness, prepared statements, password verification, tour seeding, booking totals, account-scoped queries, ordering, foreign keys, SQL-injection resistance, and cascade deletion. |
+| `http.sh` | Tour catalogue, registration, login, booking, date/guest validation, CSRF rejection, sign-out, and multi-user isolation over HTTP. |
 
 `run.sh` is the entry point. It also runs PHP syntax checks and an optional
 JavaScript syntax check when Node.js is installed.
@@ -65,7 +65,7 @@ bash tests/http.sh
 The HTTP suite uses the email namespace
 `northstar.http-test.*@example.test` and unique usernames for each run. It deletes
 those accounts at the start and end of the run when the test database
-credentials are available. Items are removed by the `ON DELETE CASCADE`
+credentials are available. Bookings are removed by the `ON DELETE CASCADE`
 constraint.
 
 If `TEST_DB_USER` or `TEST_DB_PASSWORD` is missing, database-backed checks are

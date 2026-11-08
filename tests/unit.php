@@ -76,6 +76,39 @@ check(
 );
 check(!isset($_SESSION['csrf_token']), 'sign_in_user() rotates the CSRF token');
 
+check(format_price('85000') === 'Rs 85,000', 'format_price() renders a whole-rupee price');
+check(format_price(170000.5) === 'Rs 170,001', 'format_price() rounds to whole rupees');
+
+$today = new DateTimeImmutable('2026-11-08');
+check(parse_travel_date('2026-11-08', $today) === '2026-11-08', 'A travel date of today is accepted');
+check(parse_travel_date('2026-11-09', $today) === '2026-11-09', 'A future travel date is accepted');
+check(parse_travel_date('2026-11-07', $today) === null, 'A past travel date is rejected');
+check(parse_travel_date('2028-11-07', $today) === '2028-11-07', 'A date inside the two-year window is accepted');
+check(parse_travel_date('2028-11-08', $today) === null, 'A date beyond the two-year window is rejected');
+check(parse_travel_date('2026-02-30', $today) === null, 'An impossible calendar date is rejected');
+check(parse_travel_date('not-a-date', $today) === null, 'A malformed travel date is rejected');
+check(parse_travel_date('', $today) === null, 'An empty travel date is rejected');
+
+check(parse_guest_count('1') === 1, 'One guest is accepted');
+check(parse_guest_count('12') === 12, 'Twelve guests is accepted');
+check(parse_guest_count('0') === null, 'Zero guests is rejected');
+check(parse_guest_count('13') === null, 'Thirteen guests is rejected');
+check(parse_guest_count('2.5') === null, 'A fractional guest count is rejected');
+check(parse_guest_count('many') === null, 'A non-numeric guest count is rejected');
+
+check(format_travel_date('2026-12-18') === '18 Dec 2026', 'format_travel_date() renders a readable date');
+check(format_travel_date('broken') === 'broken', 'format_travel_date() leaves an unknown value unchanged');
+
+check(
+    safe_next_path('book.php?tour=4') === 'book.php?tour=4',
+    'safe_next_path() allows the booking page with a tour id'
+);
+check(safe_next_path('home.php') === 'home.php', 'safe_next_path() allows the dashboard');
+check(safe_next_path('https://example.com') === null, 'safe_next_path() rejects absolute URLs');
+check(safe_next_path('//example.com') === null, 'safe_next_path() rejects protocol-relative URLs');
+check(safe_next_path('admin.php') === null, 'safe_next_path() rejects unknown pages');
+check(safe_next_path('book.php?tour=1&next=https://example.com') === null, 'safe_next_path() rejects a nested URL');
+
 echo PHP_EOL . $assertions . ' assertions, ' . $failures . ' failure(s)' . PHP_EOL;
 
 exit($failures === 0 ? 0 : 1);
