@@ -24,13 +24,17 @@ function check(bool $condition, string $label): void
 
 ini_set('session.use_cookies', '0');
 ini_set('session.cache_limiter', '');
-ini_set('session.use_strict_mode', '1');
+ini_set('session.use_strict_mode', '0');
+ini_set('session.use_trans_sid', '1');
 ini_set('error_log', '/dev/null');
 session_id('northstar-unit-' . bin2hex(random_bytes(8)));
 
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'config' . DIRECTORY_SEPARATOR . 'app.php';
 
 $_SESSION = [];
+
+check(ini_get('session.use_strict_mode') === '1', 'Strict session mode is enabled');
+check(ini_get('session.use_trans_sid') === '0', 'Session IDs are not accepted from URLs');
 
 check(
     e('<script>alert("x")</script>') === '&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;',

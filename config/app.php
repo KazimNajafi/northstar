@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 $isHttps = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
 
+ini_set('session.use_strict_mode', '1');
+ini_set('session.use_trans_sid', '0');
+
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_set_cookie_params([
         'lifetime' => 0,
