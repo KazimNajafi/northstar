@@ -123,46 +123,114 @@ try {
     ]);
     $secondUserId = (int) $pdo->lastInsertId();
 
-    $insertItem = $pdo->prepare(
-        'INSERT INTO items (title, description, user_id) VALUES (:title, :description, :user_id)'
+    $tourQuery = $pdo->query('SELECT id, name, price_per_person FROM tours ORDER BY id');
+    $tours = $tourQuery->fetchAll();
+
+    check(count($tours) >= 6, 'The seeded tour catalogue contains at least six tours');
+    check(
+        $tours !== [] && (float) $tours[0]['price_per_person'] > 0,
+        'Seeded tours have a positive price per person'
     );
-    $insertItem->execute([
-        'title' => 'First account item one',
-        'description' => 'Owned by the first integration user.',
+
+    $firstTour = $tours[0];
+    $secondTour = $tours[1];
+
+    try {
+        $insertTour = $pdo->prepare(
+            'INSERT INTO tours (name, destination, summary, description, duration_days, price_per_person)
+             VALUES (:name, :destination, :summary, :description, :duration_days, :price_per_person)'
+        );
+        $insertTour->execute([
+            'name' => $firstTour['name'],
+            'destination' => 'Duplicate destination',
+            'summary' => 'Duplicate tour summary.',
+            'description' => 'Duplicate tour description.',
+            'duration_days' => 3,
+            'price_per_person' => 1000,
+        ]);
+        check(false, 'A duplicate tour name is rejected by the unique index');
+    } catch (PDOException $exception) {
+        check($exception->getCode() === '23000', 'A duplicate tour name is rejected by the unique index');
+    }
+
+    $insertBooking = $pdo->prepare(
+        'INSERT INTO bookings (user_id, tour_id, travel_date, guests, total_price, status)
+         VALUES (:user_id, :tour_id, :travel_date, :guests, :total_price, :status)'
+    );
+
+    $travelDate = (new DateTimeImmutable('+30 days'))->format('Y-m-d');
+    $laterTravelDate = (new DateTimeImmutable('+45 days'))->format('Y-m-d');
+
+    $insertBooking->execute([
         'user_id' => $firstUserId,
+        'tour_id' => (int) $firstTour['id'],
+        'travel_date' => $travelDate,
+        'guests' => 2,
+        'total_price' => (float) $firstTour['price_per_person'] * 2,
+        'status' => 'confirmed',
     ]);
-    $insertItem->execute([
-        'title' => 'First account item two',
-        'description' => 'Also owned by the first integration user.',
+    $insertBooking->execute([
         'user_id' => $firstUserId,
+        'tour_id' => (int) $secondTour['id'],
+        'travel_date' => $laterTravelDate,
+        'guests' => 3,
+        'total_price' => (float) $secondTour['price_per_person'] * 3,
+        'status' => 'confirmed',
     ]);
-    $insertItem->execute([
-        'title' => 'Second account item',
-        'description' => 'Owned by the second integration user.',
+    $insertBooking->execute([
         'user_id' => $secondUserId,
+        'tour_id' => (int) $firstTour['id'],
+        'travel_date' => $travelDate,
+        'guests' => 1,
+        'total_price' => (float) $firstTour['price_per_person'],
+        'status' => 'confirmed',
     ]);
 
-    $dashboardQuery = $pdo->prepare(
-        'SELECT title, description FROM items WHERE user_id = :user_id ORDER BY id DESC'
+    $bookingQuery = $pdo->prepare(
+        'SELECT b.id, b.travel_date, b.guests, b.total_price, t.name AS tour_name
+         FROM bookings b
+         JOIN tours t ON t.id = b.tour_id
+         WHERE b.user_id = :user_id
+         ORDER BY b.travel_date ASC, b.id DESC'
     );
-    $dashboardQuery->execute(['user_id' => $firstUserId]);
-    $firstItems = $dashboardQuery->fetchAll();
+    $bookingQuery->execute(['user_id' => $firstUserId]);
+    $firstBookings = $bookingQuery->fetchAll();
 
-    check(count($firstItems) === 2, 'The dashboard query returns only the first user\'s items');
+    check(count($firstBookings) === 2, 'The dashboard query returns only the first user\'s bookings');
     check(
-        $firstItems[0]['title'] === 'First account item two'
-        && $firstItems[1]['title'] === 'First account item one',
-        'The dashboard query orders items by descending id'
+        count($firstBookings) === 2
+        && $firstBookings[0]['tour_name'] === $firstTour['name']
+        && $firstBookings[1]['tour_name'] === $secondTour['name'],
+        'The dashboard query orders bookings by travel date'
     );
-
-    $dashboardQuery->execute(['user_id' => $secondUserId]);
-    $secondItems = $dashboardQuery->fetchAll();
-
-    check(count($secondItems) === 1, 'The second user receives a different item set');
     check(
-        $secondItems[0]['title'] === 'Second account item',
-        'The second user does not receive the first user\'s items'
+        count($firstBookings) === 2
+        && abs((float) $firstBookings[0]['total_price'] - (float) $firstTour['price_per_person'] * 2) < 0.01,
+        'The stored booking total matches the tour price multiplied by guests'
     );
+
+    $bookingQuery->execute(['user_id' => $secondUserId]);
+    $secondBookings = $bookingQuery->fetchAll();
+
+    check(count($secondBookings) === 1, 'The second user receives a different booking set');
+    check(
+        $secondBookings !== [] && $secondBookings[0]['tour_name'] === $firstTour['name'],
+        'The second user does not receive the first user\'s bookings'
+    );
+
+    try {
+        $insertBooking->execute([
+            'user_id' => $firstUserId,
+            'tour_id' => 999999999,
+            'travel_date' => $travelDate,
+            'guests' => 1,
+            'total_price' => 1000,
+            'status' => 'confirmed',
+        ]);
+        check(false, 'A booking must reference an existing tour');
+    } catch (PDOException $exception) {
+        check($exception->getCode() === '23000', 'A booking must reference an existing tour');
+    }
 
     $loginQuery = $pdo->prepare('SELECT id, username, password FROM users WHERE email = :email LIMIT 1');
     $loginQuery->execute(['email' => $firstUser['email']]);
@@ -181,15 +249,18 @@ try {
     $deleteUser = $pdo->prepare('DELETE FROM users WHERE id = :id');
     $deleteUser->execute(['id' => $firstUserId]);
 
-    $countItems = $pdo->prepare('SELECT COUNT(*) AS total FROM items WHERE user_id = :user_id');
-    $countItems->execute(['user_id' => $firstUserId]);
-    $firstItemCount = (int) $countItems->fetch()['total'];
+    $countBookings = $pdo->prepare('SELECT COUNT(*) AS total FROM bookings WHERE user_id = :user_id');
+    $countBookings->execute(['user_id' => $firstUserId]);
+    $firstBookingCount = (int) $countBookings->fetch()['total'];
 
-    $countItems->execute(['user_id' => $secondUserId]);
-    $secondItemCount = (int) $countItems->fetch()['total'];
+    $countBookings->execute(['user_id' => $secondUserId]);
+    $secondBookingCount = (int) $countBookings->fetch()['total'];
 
-    check($firstItemCount === 0, 'Deleting a user cascades to that user\'s items');
-    check($secondItemCount === 1, 'Deleting one user leaves another user\'s items intact');
+    check($firstBookingCount === 0, 'Deleting a user cascades to that user\'s bookings');
+    check($secondBookingCount === 1, 'Deleting one user leaves another user\'s bookings intact');
+
+    $countTours = $pdo->query('SELECT COUNT(*) AS total FROM tours');
+    check((int) $countTours->fetch()['total'] >= 6, 'Deleting users does not remove the tour catalogue');
 
     $countUser = $pdo->prepare('SELECT COUNT(*) AS total FROM users WHERE id = :id');
     $countUser->execute(['id' => $firstUserId]);

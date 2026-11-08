@@ -10,6 +10,7 @@ if (isset($_SESSION['user_id'])) {
 
 $error = '';
 $email = '';
+$next = safe_next_path(post_string('next')) ?? safe_next_path((string) ($_GET['next'] ?? '')) ?? '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email = strtolower(trim(post_string('email')));
@@ -30,7 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($user !== false && password_verify($password, $user['password'])) {
                 sign_in_user($user);
-                header('Location: home.php');
+                header('Location: ' . ($next !== '' ? $next : 'home.php'));
                 exit;
             }
 
@@ -93,6 +94,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 <form id="login-form" class="form-stack" method="post" action="login.php" novalidate>
                     <input type="hidden" name="csrf_token" value="<?= e(csrf_token()) ?>">
+                    <?php if ($next !== ''): ?>
+                        <input type="hidden" name="next" value="<?= e($next) ?>">
+                    <?php endif; ?>
                     <label class="field">
                         <span>Email address</span>
                         <input type="email" name="email" autocomplete="email" maxlength="254" value="<?= e($email) ?>" placeholder="you@example.com" required>
@@ -106,7 +110,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </button>
                 </form>
 
-                <p class="auth-switch">New to Northstar? <a href="signin.php">Create an account</a></p>
+                <p class="auth-switch">New to Northstar? <a href="signin.php<?= $next !== '' ? '?next=' . e(rawurlencode($next)) : '' ?>">Create an account</a></p>
             </div>
             <p class="panel-footnote">A little more clarity, every day.</p>
         </section>

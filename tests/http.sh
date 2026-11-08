@@ -188,6 +188,22 @@ PASS1="HttpTestOne123!"
 EMAIL2="northstar.http-test.two.${SUFFIX}@example.test"
 USER2="HTTP Test Two ${SUFFIX}"
 PASS2="HttpTestTwo123!"
+FUTURE_DATE="$(date -u -d '+30 days' +%Y-%m-%d)"
+PAST_DATE="$(date -u -d '-30 days' +%Y-%m-%d)"
+
+TOUR1_ID=1
+TOUR2_ID=2
+TOUR1_NAME="Hunza Valley Escape"
+TOUR2_NAME="Skardu and Shangrila"
+
+if [[ "$DB_AVAILABLE" -eq 1 ]]; then
+    TOUR1_ID="$(mysql_q "SELECT id FROM tours ORDER BY id LIMIT 1;" || true)"
+    TOUR2_ID="$(mysql_q "SELECT id FROM tours ORDER BY id LIMIT 1 OFFSET 1;" || true)"
+    TOUR1_NAME="$(mysql_q "SELECT name FROM tours ORDER BY id LIMIT 1;" || true)"
+    TOUR2_NAME="$(mysql_q "SELECT name FROM tours ORDER BY id LIMIT 1 OFFSET 1;" || true)"
+    TOUR1_ID="${TOUR1_ID:-1}"
+    TOUR2_ID="${TOUR2_ID:-2}"
+fi
 
 JAR1="$TMP_DIR/jar1"
 JAR2="$TMP_DIR/jar2"
@@ -197,9 +213,20 @@ TOKEN=""
 echo '== Public pages and access control =='
 
 status="$(get_page "$BASE_URL/" "$JAR1" "$TMP_DIR/root.html" "$TMP_DIR/root.headers")"
-assert_status 200 "$status" 'GET / renders the registration page'
-assert_contains "$TMP_DIR/root.html" 'Create your account' 'Registration page contains the form heading'
-TOKEN="$(csrf_from "$TMP_DIR/root.html")"
+assert_status 200 "$status" 'GET / renders the tour catalogue'
+assert_contains "$TMP_DIR/root.html" 'Choose your next journey' 'The catalogue lists the available journeys'
+
+if [[ "$DB_AVAILABLE" -eq 1 ]]; then
+    assert_contains "$TMP_DIR/root.html" "$TOUR1_NAME" 'The catalogue shows a seeded tour'
+    assert_contains "$TMP_DIR/root.html" 'Reserve this tour' 'A tour card offers a reservation link'
+else
+    skip 'Seeded tour rendering requires TEST_DB_USER and TEST_DB_PASSWORD'
+fi
+
+status="$(get_page "$BASE_URL/signin.php" "$JAR1" "$TMP_DIR/signin.html" "$TMP_DIR/signin.headers")"
+assert_status 200 "$status" 'GET /signin.php renders the registration page'
+assert_contains "$TMP_DIR/signin.html" 'Create your account' 'Registration page contains the form heading'
+TOKEN="$(csrf_from "$TMP_DIR/signin.html")"
 
 if [[ ${#TOKEN} -eq 64 ]]; then
     pass 'Registration page renders a 64-character CSRF token'
@@ -220,10 +247,18 @@ status="$(curl -sS -D "$TMP_DIR/anon.headers" -o /dev/null -w '%{http_code}' "$B
 assert_status 302 "$status" 'Anonymous dashboard access redirects'
 assert_location_contains "$TMP_DIR/anon.headers" 'login.php' 'Anonymous dashboard redirects to login'
 
+status="$(curl -sS -D "$TMP_DIR/anon-book.headers" -o /dev/null -w '%{http_code}' "$BASE_URL/book.php?tour=$TOUR1_ID")"
+assert_status 302 "$status" 'Anonymous booking access redirects'
+assert_location_contains "$TMP_DIR/anon-book.headers" 'login.php' 'Anonymous booking redirects to login'
+assert_location_contains "$TMP_DIR/anon-book.headers" 'next=book.php' 'The booking redirect preserves the chosen tour'
+
 for path in config/db.php schema.sql docs/database-setup.md apache/northstar.conf; do
     status="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/$path")"
     assert_status 403 "$status" "Direct access to $path is blocked"
 done
+
+status="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/tests/run.sh")"
+assert_status 404 "$status" 'The test suite is not deployed to the web root'
 
 echo
 echo '== Registration and session establishment =='
@@ -240,7 +275,7 @@ assert_location_contains "$TMP_DIR/register.headers" 'home.php' 'Registration re
 status="$(get_page "$BASE_URL/home.php" "$JAR1" "$TMP_DIR/dashboard-one.html" "$TMP_DIR/dashboard-one.headers")"
 assert_status 200 "$status" 'A registered user can open the dashboard'
 assert_contains "$TMP_DIR/dashboard-one.html" 'Good to see you' 'Dashboard greets the signed-in user'
-assert_contains "$TMP_DIR/dashboard-one.html" 'Your space is ready' 'A new dashboard shows the empty state'
+assert_contains "$TMP_DIR/dashboard-one.html" 'No trips booked yet' 'A new account shows the empty bookings state'
 
 if [[ "$DB_AVAILABLE" -eq 1 ]]; then
     stored_password="$(mysql_q "SELECT CONCAT(LEFT(password, 4), ':', LENGTH(password)) FROM users WHERE email='$EMAIL1';" || true)"
@@ -254,16 +289,36 @@ if [[ "$DB_AVAILABLE" -eq 1 ]]; then
             ;;
     esac
 
-    if mysql_q "INSERT INTO items (title, description, user_id) SELECT 'HTTP-test item one', 'Owned by the first HTTP test user.', id FROM users WHERE email='$EMAIL1';" >/dev/null 2>&1; then
-        status="$(get_page "$BASE_URL/home.php" "$JAR1" "$TMP_DIR/dashboard-one-items.html" "$TMP_DIR/dashboard-one-items.headers")"
-        assert_status 200 "$status" 'Dashboard reloads after adding an item'
-        assert_contains "$TMP_DIR/dashboard-one-items.html" 'HTTP-test item one' 'Dashboard displays an account-owned item'
+    status="$(get_page "$BASE_URL/book.php?tour=$TOUR1_ID" "$JAR1" "$TMP_DIR/book.html" "$TMP_DIR/book.headers")"
+    assert_status 200 "$status" 'A signed-in user can open the booking form'
+    assert_contains "$TMP_DIR/book.html" 'Reserve your place' 'The booking form asks for travel details'
+    assert_contains "$TMP_DIR/book.html" "$TOUR1_NAME" 'The booking form names the chosen tour'
+
+    BOOK_TOKEN="$(csrf_from "$TMP_DIR/book.html")"
+    status="$(post_form "$BASE_URL/book.php" "$JAR1" "$TMP_DIR/booked.html" "$TMP_DIR/booked.headers" \
+        --data-urlencode "csrf_token=$BOOK_TOKEN" \
+        --data-urlencode "tour_id=$TOUR1_ID" \
+        --data-urlencode "travel_date=$FUTURE_DATE" \
+        --data-urlencode 'guests=2' \
+        --data-urlencode 'total_price=1')"
+    assert_status 302 "$status" 'A valid booking redirects'
+    assert_location_contains "$TMP_DIR/booked.headers" 'home.php[?]booked=1' 'A valid booking confirms on the dashboard'
+
+    status="$(get_page "$BASE_URL/home.php?booked=1" "$JAR1" "$TMP_DIR/dashboard-booked.html" "$TMP_DIR/dashboard-booked.headers")"
+    assert_status 200 "$status" 'The dashboard reloads after booking'
+    assert_contains "$TMP_DIR/dashboard-booked.html" 'Your booking is confirmed' 'The dashboard confirms the booking'
+    assert_contains "$TMP_DIR/dashboard-booked.html" "$TOUR1_NAME" 'The booking appears on the dashboard'
+    assert_contains "$TMP_DIR/dashboard-booked.html" '1 booking' 'The dashboard counts the booking'
+
+    stored_total="$(mysql_q "SELECT COUNT(*) FROM bookings b JOIN tours t ON t.id = b.tour_id JOIN users u ON u.id = b.user_id WHERE u.email='$EMAIL1' AND b.total_price = t.price_per_person * 2;" || true)"
+    if [[ "$stored_total" == "1" ]]; then
+        pass 'The booking total is calculated from the tour price, not the submitted value'
     else
-        fail 'Test item can be inserted for the first HTTP test user'
+        fail "The booking total is calculated from the tour price, not the submitted value (got: $stored_total)"
     fi
 else
-    skip 'Password hash and item display checks require TEST_DB_USER and TEST_DB_PASSWORD'
-    cp "$TMP_DIR/dashboard-one.html" "$TMP_DIR/dashboard-one-items.html"
+    skip 'Password hash and booking checks require TEST_DB_USER and TEST_DB_PASSWORD'
+    cp "$TMP_DIR/dashboard-one.html" "$TMP_DIR/dashboard-booked.html"
 fi
 
 echo
@@ -322,10 +377,48 @@ status="$(post_form "$BASE_URL/signin.php" "$JAR3" "$TMP_DIR/csrf.html" "$TMP_DI
 assert_status 200 "$status" 'A stale CSRF token stays on the form'
 assert_contains "$TMP_DIR/csrf.html" 'Your session expired. Refresh the page and try again.' 'A stale CSRF token is rejected'
 
+if [[ "$DB_AVAILABLE" -eq 1 ]]; then
+    status="$(get_page "$BASE_URL/book.php?tour=$TOUR1_ID" "$JAR1" "$TMP_DIR/book-invalid.html" "$TMP_DIR/book-invalid.headers")"
+    INVALID_TOKEN="$(csrf_from "$TMP_DIR/book-invalid.html")"
+
+    status="$(post_form "$BASE_URL/book.php" "$JAR1" "$TMP_DIR/past-date.html" "$TMP_DIR/past-date.headers" \
+        --data-urlencode "csrf_token=$INVALID_TOKEN" \
+        --data-urlencode "tour_id=$TOUR1_ID" \
+        --data-urlencode "travel_date=$PAST_DATE" \
+        --data-urlencode 'guests=2')"
+    assert_status 200 "$status" 'A past travel date stays on the booking form'
+    assert_contains "$TMP_DIR/past-date.html" 'Choose a travel date' 'A past travel date is rejected'
+
+    status="$(get_page "$BASE_URL/book.php?tour=$TOUR1_ID" "$JAR1" "$TMP_DIR/book-invalid-2.html" "$TMP_DIR/book-invalid-2.headers")"
+    INVALID_TOKEN="$(csrf_from "$TMP_DIR/book-invalid-2.html")"
+
+    status="$(post_form "$BASE_URL/book.php" "$JAR1" "$TMP_DIR/too-many.html" "$TMP_DIR/too-many.headers" \
+        --data-urlencode "csrf_token=$INVALID_TOKEN" \
+        --data-urlencode "tour_id=$TOUR1_ID" \
+        --data-urlencode "travel_date=$FUTURE_DATE" \
+        --data-urlencode 'guests=13')"
+    assert_status 200 "$status" 'An oversized group stays on the booking form'
+    assert_contains "$TMP_DIR/too-many.html" 'Choose between 1 and 12 guests' 'An oversized group is rejected'
+
+    status="$(post_form "$BASE_URL/book.php" "$JAR1" "$TMP_DIR/book-csrf.html" "$TMP_DIR/book-csrf.headers" \
+        --data-urlencode 'csrf_token=invalid-token' \
+        --data-urlencode "tour_id=$TOUR1_ID" \
+        --data-urlencode "travel_date=$FUTURE_DATE" \
+        --data-urlencode 'guests=2')"
+    assert_status 200 "$status" 'A stale CSRF token stays on the booking form'
+    assert_contains "$TMP_DIR/book-csrf.html" 'Your session expired. Refresh the page and try again.' 'A stale booking token is rejected'
+
+    status="$(get_page "$BASE_URL/book.php?tour=999999999" "$JAR1" "$TMP_DIR/missing-tour.html" "$TMP_DIR/missing-tour.headers")"
+    assert_status 404 "$status" 'An unknown tour returns 404'
+    assert_contains "$TMP_DIR/missing-tour.html" 'We could not find that tour' 'An unknown tour is handled gracefully'
+else
+    skip 'Booking validation checks require TEST_DB_USER and TEST_DB_PASSWORD'
+fi
+
 echo
 echo '== Sign-out and sign-in =='
 
-LOGOUT_TOKEN="$(csrf_from "$TMP_DIR/dashboard-one-items.html")"
+LOGOUT_TOKEN="$(csrf_from "$TMP_DIR/dashboard-booked.html")"
 status="$(post_form "$BASE_URL/logout.php" "$JAR1" "$TMP_DIR/logout-bad.html" "$TMP_DIR/logout-bad.headers" \
     --data-urlencode 'csrf_token=invalid-token')"
 assert_status 400 "$status" 'A sign-out request with an invalid CSRF token is rejected'
@@ -376,21 +469,26 @@ status="$(post_form "$BASE_URL/signin.php" "$JAR2" "$TMP_DIR/register-2.html" "$
 assert_status 302 "$status" 'A second account can register'
 
 if [[ "$DB_AVAILABLE" -eq 1 ]]; then
-    if mysql_q "INSERT INTO items (title, description, user_id) SELECT 'HTTP-test item two', 'Owned by the second HTTP test user.', id FROM users WHERE email='$EMAIL2';" >/dev/null 2>&1; then
-        status="$(get_page "$BASE_URL/home.php" "$JAR2" "$TMP_DIR/dashboard-two.html" "$TMP_DIR/dashboard-two.headers")"
-        assert_status 200 "$status" 'The second user can open the dashboard'
-        assert_contains "$TMP_DIR/dashboard-two.html" 'HTTP-test item two' 'The second user sees their own item'
-        assert_not_contains "$TMP_DIR/dashboard-two.html" 'HTTP-test item one' "The second user does not see the first user's item"
+    status="$(get_page "$BASE_URL/book.php?tour=$TOUR2_ID" "$JAR2" "$TMP_DIR/book-two.html" "$TMP_DIR/book-two.headers")"
+    BOOK_TOKEN="$(csrf_from "$TMP_DIR/book-two.html")"
+    status="$(post_form "$BASE_URL/book.php" "$JAR2" "$TMP_DIR/booked-two.html" "$TMP_DIR/booked-two.headers" \
+        --data-urlencode "csrf_token=$BOOK_TOKEN" \
+        --data-urlencode "tour_id=$TOUR2_ID" \
+        --data-urlencode "travel_date=$FUTURE_DATE" \
+        --data-urlencode 'guests=1')"
+    assert_status 302 "$status" 'The second user can book a tour'
 
-        status="$(get_page "$BASE_URL/home.php" "$JAR1" "$TMP_DIR/dashboard-one-again.html" "$TMP_DIR/dashboard-one-again.headers")"
-        assert_status 200 "$status" 'The first user can reopen the dashboard'
-        assert_contains "$TMP_DIR/dashboard-one-again.html" 'HTTP-test item one' 'The first user still sees their own item'
-        assert_not_contains "$TMP_DIR/dashboard-one-again.html" 'HTTP-test item two' "The first user does not see the second user's item"
-    else
-        fail 'Test item can be inserted for the second HTTP test user'
-    fi
+    status="$(get_page "$BASE_URL/home.php" "$JAR2" "$TMP_DIR/dashboard-two.html" "$TMP_DIR/dashboard-two.headers")"
+    assert_status 200 "$status" 'The second user can open the dashboard'
+    assert_contains "$TMP_DIR/dashboard-two.html" "data-booking-tour=\"$TOUR2_ID\"" 'The second user sees their own booking'
+    assert_not_contains "$TMP_DIR/dashboard-two.html" "data-booking-tour=\"$TOUR1_ID\"" "The second user does not see the first user's booking"
+
+    status="$(get_page "$BASE_URL/home.php" "$JAR1" "$TMP_DIR/dashboard-one-again.html" "$TMP_DIR/dashboard-one-again.headers")"
+    assert_status 200 "$status" 'The first user can reopen the dashboard'
+    assert_contains "$TMP_DIR/dashboard-one-again.html" "data-booking-tour=\"$TOUR1_ID\"" 'The first user still sees their own booking'
+    assert_not_contains "$TMP_DIR/dashboard-one-again.html" "data-booking-tour=\"$TOUR2_ID\"" "The first user does not see the second user's booking"
 else
-    skip 'Multi-user item isolation requires TEST_DB_USER and TEST_DB_PASSWORD'
+    skip 'Multi-user booking isolation requires TEST_DB_USER and TEST_DB_PASSWORD'
 fi
 
 echo
