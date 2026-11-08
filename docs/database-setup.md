@@ -1,69 +1,91 @@
 # MySQL Setup
 
-The application requires PHP 8.0+ with PDO MySQL and a MySQL 5.7+ or MariaDB
-10.3+ database. It reads `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and
-`DB_PASSWORD` from the PHP process environment. Credentials are not stored in
-this repository.
+Northstar requires MySQL 5.7+ or MariaDB 10.3+ and PHP 8.0+ with PDO MySQL. It
+reads `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD` from the PHP
+process environment. Credentials are not stored in this repository.
 
-## Create the database and application account
+## Automated setup
 
-On Ubuntu/Debian, open an administrative MySQL session:
+From the repository root:
+
+```sh
+./scripts/setup-local.sh
+```
+
+On Ubuntu/Debian, the script uses `sudo mysql` (socket authentication) to:
+
+1. Import `schema.sql` and create `web_project_db`.
+2. Create the application account `northstar_app` with `SELECT` and `INSERT` only.
+3. Create the local test account `northstar_test` with `SELECT`, `INSERT`, `UPDATE`, and `DELETE` for the test suite.
+4. Generate strong passwords.
+5. Write `/etc/apache2/conf-available/northstar-env.conf` (mode `0640`, `root:www-data`).
+6. Write local test settings to `tests/.env` (mode `0600`, ignored by Git).
+
+The script is idempotent: re-running it resets the local account passwords, keeps
+existing application data, and re-applies the schema fixtures without duplicating
+the sample items.
+
+## Manual database creation
+
+Open an administrative MySQL session:
 
 ```sh
 sudo mysql
 ```
 
-Run the following SQL there, replacing the example password with a unique,
-long random value. Do not use the example text as a real password.
+Create the database and application account. Replace the example password with a
+unique random value; do not reuse the example text.
 
 ```sql
-CREATE USER 'northstar_app'@'127.0.0.1'
+CREATE DATABASE IF NOT EXISTS web_project_db
+    CHARACTER SET utf8mb4
+    COLLATE utf8mb4_unicode_ci;
+
+CREATE USER IF NOT EXISTS 'northstar_app'@'127.0.0.1'
     IDENTIFIED BY 'replace-with-a-long-random-password';
 GRANT SELECT, INSERT ON web_project_db.* TO 'northstar_app'@'127.0.0.1';
 ```
 
-Exit MySQL and import the schema as an administrator. The schema creates
-`web_project_db`, its tables and indexes, and local demo records.
+Exit MySQL and import the schema:
 
 ```sh
 sudo mysql < /home/kazim/northstar/schema.sql
 ```
 
-The sample account is for local verification only. Remove or replace it before
-production use. The application database account is limited to the `SELECT`
-and `INSERT` operations required by this release.
+The schema creates the database, both InnoDB tables with their constraints, a
+local demo account, and two sample items. The demo credentials are:
 
-## Run the PHP development server
+- Email: `demo@example.com`
+- Password: `DemoPass123!`
 
-Stop any existing development server with `Ctrl+C`. In the same terminal, set
-the connection settings and enter the database password without echoing it or
-placing it in shell history:
+The demo account is for local verification only. Remove or replace it before
+production use. The application account is limited to the operations required by
+this release and cannot alter the schema or delete data.
 
-```sh
-export DB_HOST=127.0.0.1
-export DB_PORT=3306
-export DB_NAME=web_project_db
-export DB_USER=northstar_app
-read -rsp 'Database password: ' DB_PASSWORD
-printf '\n'
-export DB_PASSWORD
-php -S 127.0.0.1:8000 -t /home/kazim/northstar
+## Test database account
+
+The HTTP and database tests create temporary users and items. Create a separate
+local test account with the privileges needed for cleanup:
+
+```sql
+CREATE USER IF NOT EXISTS 'northstar_test'@'127.0.0.1'
+    IDENTIFIED BY 'replace-with-another-long-random-password';
+GRANT SELECT, INSERT, UPDATE, DELETE ON web_project_db.* TO 'northstar_test'@'127.0.0.1';
 ```
 
-Then open `http://127.0.0.1:8000/signin.php`. The settings must be present in
-the environment of the PHP server process; setting them in a different
-terminal will not update an already-running server.
+The test account is for local development only. Do not use it as the application
+account in production.
 
-## Configure Apache
+## Configure PHP/Apache
 
-For Apache with mod_php, create a root-owned environment file outside the Git
+For Apache with `mod_php`, create a root-owned environment file outside the Git
 checkout:
 
 ```sh
 sudoedit /etc/apache2/conf-available/northstar-env.conf
 ```
 
-Add the five `SetEnv` directives below, replacing the example password locally:
+Add the five `SetEnv` directives, replacing the example password locally:
 
 ```apache
 SetEnv DB_HOST "127.0.0.1"
@@ -86,3 +108,31 @@ sudo systemctl reload apache2
 Do not commit this environment file or paste its password into source control.
 If the database connection fails, PHP logs diagnostic details while the page
 shows a generic retry message.
+
+## Run the PHP development server without Apache
+
+This is useful for a quick local check. The settings must be present in the
+environment of the PHP process:
+
+```sh
+export DB_HOST=127.0.0.1
+export DB_PORT=3306
+export DB_NAME=web_project_db
+export DB_USER=northstar_app
+read -rsp 'Database password: ' DB_PASSWORD
+printf '\n'
+export DB_PASSWORD
+php -S 127.0.0.1:8000 -t /home/kazim/northstar
+```
+
+Open <http://127.0.0.1:8000/signin.php>.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| `Database configuration is incomplete` | All five `DB_*` variables must be visible to the PHP process. |
+| `Could not connect to the database` | Confirm MySQL is running, the database exists, and the account host/port are correct. |
+| `PDO MySQL driver missing` | Enable `pdo_mysql` for the PHP runtime used by Apache. |
+| Access denied for `root` | Use `sudo mysql` for socket authentication, or run the SQL as an administrative account. |
+| Tests skip database coverage | Confirm `tests/.env` exists and contains `TEST_DB_USER` and `TEST_DB_PASSWORD`. |
