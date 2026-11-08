@@ -139,6 +139,18 @@ assert_location_contains() {
     fi
 }
 
+assert_header() {
+    local headers="$1"
+    local pattern="$2"
+    local label="$3"
+
+    if grep -Eiq -- "$pattern" "$headers"; then
+        pass "$label"
+    else
+        fail "$label (header not found: $pattern)"
+    fi
+}
+
 csrf_from() {
     sed -n 's/.*name="csrf_token" value="\([^"]*\)".*/\1/p' "$1" | head -n 1
 }
@@ -198,6 +210,11 @@ fi
 status="$(get_page "$BASE_URL/login.php" "$JAR1" "$TMP_DIR/login.html" "$TMP_DIR/login.headers")"
 assert_status 200 "$status" 'GET /login.php renders the sign-in page'
 assert_contains "$TMP_DIR/login.html" 'Sign in to Northstar' 'Sign-in page contains the form heading'
+
+assert_header "$TMP_DIR/root.headers" '^X-Content-Type-Options: nosniff' 'Responses set X-Content-Type-Options'
+assert_header "$TMP_DIR/root.headers" '^Referrer-Policy: strict-origin-when-cross-origin' 'Responses set Referrer-Policy'
+assert_header "$TMP_DIR/root.headers" '^X-Frame-Options: DENY' 'Responses set X-Frame-Options'
+assert_header "$TMP_DIR/root.headers" '^Permissions-Policy: .*geolocation=.*microphone=.*camera=' 'Responses set Permissions-Policy'
 
 status="$(curl -sS -D "$TMP_DIR/anon.headers" -o /dev/null -w '%{http_code}' "$BASE_URL/home.php")"
 assert_status 302 "$status" 'Anonymous dashboard access redirects'
