@@ -23,7 +23,7 @@ On Ubuntu/Debian, the script uses `sudo mysql` (socket authentication) to:
 
 The script is idempotent: re-running it resets the local account passwords, keeps
 existing application data, and re-applies the schema fixtures without duplicating
-the sample items.
+the seeded tours or the demo booking.
 
 ## Manual database creation
 
@@ -52,8 +52,9 @@ Exit MySQL and import the schema:
 sudo mysql < /home/kazim/northstar/schema.sql
 ```
 
-The schema creates the database, both InnoDB tables with their constraints, a
-local demo account, and two sample items. The demo credentials are:
+The schema creates the database, the three InnoDB tables with their constraints,
+six seeded tours, a local demo account, and one upcoming demo booking. The demo
+credentials are:
 
 - Email: `demo@example.com`
 - Password: `DemoPass123!`
@@ -64,7 +65,7 @@ this release and cannot alter the schema or delete data.
 
 ## Test database account
 
-The HTTP and database tests create temporary users and items. Create a separate
+The HTTP and database tests create temporary users and bookings. Create a separate
 local test account with the privileges needed for cleanup:
 
 ```sql
@@ -125,7 +126,7 @@ export DB_PASSWORD
 php -S 127.0.0.1:8000 -t /home/kazim/northstar
 ```
 
-Open <http://127.0.0.1:8000/signin.php>.
+Open <http://127.0.0.1:8000/>.
 
 ## Troubleshooting
 

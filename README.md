@@ -1,22 +1,26 @@
 # Northstar
 
-Northstar is a small, responsive account dashboard built with PHP 8, MySQL, PDO,
-and Apache. A visitor can register with a name, email address, and password, sign
-in, see a read-only list of items owned by that account, and sign out.
+Northstar is a small, responsive tour-booking site built with PHP 8, MySQL, PDO,
+and Apache. Visitors can browse a catalogue of northern Pakistan tours, create an
+account, reserve a tour with a travel date and group size, and see their confirmed
+bookings on a personal dashboard.
 
-The application is intentionally narrow in scope: it demonstrates a clean
-authentication flow, account-scoped data access, and the web safeguards expected
-in a small PHP application without adding a framework.
+The application stays deliberately framework-free so the request flow, database
+access, and security controls remain easy to read. It demonstrates account
+registration, session authentication, server-side booking validation, and
+account-scoped data access.
 
 ## Features
 
+- Public tour catalogue with destination, duration, and per-person price.
 - Account registration with server-side validation and unique username/email checks.
 - Password storage with `password_hash()` and verification with `password_verify()`.
 - Session-based authentication with session-ID regeneration after sign-in.
-- CSRF-protected registration, login, and sign-out POST requests.
-- PDO prepared statements with emulated prepares disabled.
-- A protected, read-only dashboard that queries only the signed-in user's items.
-- Responsive interface, accessible error notices, and a deliberate empty state.
+- CSRF-protected registration, login, booking, and sign-out POST requests.
+- Booking form that validates the travel date and guest count, then recalculates
+  the total from the stored tour price instead of trusting submitted values.
+- Protected dashboard that lists only the signed-in user's bookings.
+- Responsive interface, accessible notices, and a deliberate empty state.
 - Apache virtual host that denies access to application config, docs, tests, and SQL files.
 - Unit, database integration, and end-to-end HTTP acceptance tests.
 - Reproducible local provisioning and deployment scripts for Ubuntu/Debian.
@@ -67,8 +71,8 @@ The local demo account is:
 - Email: `demo@example.com`
 - Password: `DemoPass123!`
 
-The demo account and its sample items are for local development only. Remove or
-replace them before using the application anywhere real.
+The demo account, its booking, and the seeded tours are for local development
+only. Remove or replace them before using the application anywhere real.
 
 ## Manual setup
 
@@ -101,6 +105,19 @@ The test suite additionally uses `TEST_DB_USER`, `TEST_DB_PASSWORD`, and
 `BASE_URL`. The setup script writes local test values to `tests/.env`, which is
 ignored by Git.
 
+## Using the site
+
+1. Open `/` to browse the tour catalogue.
+2. Select **Reserve this tour**. Anonymous visitors are sent to sign in or create
+   an account, then returned to the chosen tour.
+3. Choose a travel date (today up to two years ahead) and 1-12 guests.
+4. Confirm the booking. The total is calculated on the server from the tour price.
+5. The dashboard at `/home.php` lists the account's bookings and suggests tours
+   that have not been booked yet.
+
+Bookings are recorded only; no payment is collected and there is no cancellation
+workflow in this release.
+
 ## Testing
 
 Run the full available suite from the repository root:
@@ -113,9 +130,12 @@ The suite performs:
 
 - PHP syntax checks for every PHP file.
 - A JavaScript syntax check when Node.js is installed.
-- Unit checks for output escaping, CSRF helpers, password hashing, and session sign-in.
-- Database integration checks for hashing, prepared statements, uniqueness, account scoping, and cascade deletion.
-- HTTP acceptance checks for registration, login, dashboard protection, CSRF rejection, sign-out, and multi-user isolation.
+- Unit checks for escaping, CSRF, password hashing, prices, dates, guest counts,
+  and redirect safety.
+- Database integration checks for hashing, prepared statements, uniqueness,
+  booking totals, account scoping, foreign keys, and cascade deletion.
+- HTTP acceptance checks for the catalogue, registration, login, booking, date
+  and guest validation, CSRF rejection, sign-out, and multi-user isolation.
 
 The HTTP tests expect the site to be available at `http://localhost/` by default.
 Set `BASE_URL` to test a different address. Test accounts use the
@@ -131,7 +151,7 @@ northstar/
 ├── apache/
 │   └── northstar.conf          Apache virtual host and access rules
 ├── assets/
-│   ├── script.js               Progressive-enhancement form validation
+│   ├── script.js               Form validation and live booking total
 │   └── style.css               Responsive interface styling
 ├── config/
 │   ├── app.php                 Session, CSRF, escaping, and shared helpers
@@ -150,18 +170,22 @@ northstar/
 │   ├── integration.php         Database integration checks
 │   ├── run.sh                  Full test entry point
 │   └── unit.php                Shared-helper checks
-├── home.php                    Protected, read-only dashboard
+├── book.php                    Protected booking form
+├── home.php                    Protected booking dashboard
+├── index.php                   Public tour catalogue
 ├── login.php                   Account authentication
 ├── logout.php                  CSRF-protected sign-out
-├── schema.sql                  Database, tables, indexes, and local demo data
+├── schema.sql                  Database, tables, indexes, tours, and demo data
 └── signin.php                  Account registration
 ```
 
 ## Database model
 
-`users` owns zero or more `items`. Every item has one required `user_id` foreign
-key referencing `users.id`, indexed for account-scoped retrieval, with
-`ON DELETE CASCADE`. Usernames and emails are unique. See
+`users` owns zero or more `bookings`. Each booking references one `tours` record
+and one `users` record. Booking rows store the travel date, guest count, total
+price, and status. `bookings.user_id` cascades on user deletion, while
+`bookings.tour_id` uses `ON DELETE RESTRICT` so a tour with bookings cannot be
+removed accidentally. Usernames, emails, and tour names are unique. See
 [docs/PRD.md](docs/PRD.md) for the data dictionary and ERD.
 
 ## Security notes
@@ -172,19 +196,23 @@ key referencing `users.id`, indexed for account-scoped retrieval, with
 - Session IDs are regenerated after successful authentication.
 - Session cookies are HTTP-only and `SameSite=Lax`; `Secure` is enabled under HTTPS.
 - State-changing requests require a per-session CSRF token.
+- Booking totals are calculated from the database price, never from form input.
+- Post-login redirects accept only local `book.php` and `home.php` paths.
 - The Apache virtual host denies direct access to `config/`, `docs/`, `tests/`, `apache/`, dotfiles, `schema.sql`, and `README.md`.
 - The application connects with an account limited to `SELECT` and `INSERT`.
 
-This is a local/educational baseline, not a complete production identity system.
+This is a local/educational baseline, not a complete production booking system.
 Add rate limiting, email verification, password reset, multi-factor
-authentication, HTTPS enforcement, monitoring, and backups before public use.
-Remove the demo account before production.
+authentication, payment handling, cancellation rules, HTTPS enforcement,
+monitoring, and backups before public use. Remove the demo account before
+production.
 
 ## Limitations
 
-- The dashboard is read-only; item creation, editing, and deletion are out of scope.
+- No payment collection, cancellation, or booking modification.
+- No admin interface for creating tours; tours are seeded through `schema.sql`.
 - There is no password reset, email verification, role administration, or social sign-in.
-- The sample account and sample items are development fixtures.
+- The sample account, demo booking, and seeded tours are development fixtures.
 - The project targets a single Apache/PHP host and a local MySQL server.
 
 ## License
