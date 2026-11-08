@@ -18,11 +18,10 @@ try {
     );
     $statement->execute(['user_id' => (int) $_SESSION['user_id']]);
     $items = $statement->fetchAll();
-} catch (RuntimeException $exception) {
-    $error = $exception->getMessage();
 } catch (PDOException $exception) {
-    error_log('Dashboard items could not be loaded: ' . $exception->getMessage());
-    $error = 'Your items could not be loaded right now. Please refresh the page in a moment.';
+    $error = database_error_message($exception);
+} catch (RuntimeException $exception) {
+    $error = database_error_message($exception);
 }
 
 $username = (string) $_SESSION['username'];

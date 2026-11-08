@@ -52,3 +52,10 @@ function sign_in_user(array $user): void
     $_SESSION['username'] = (string) $user['username'];
     unset($_SESSION['csrf_token']);
 }
+
+function database_error_message(Throwable $exception): string
+{
+    error_log('Northstar database operation failed: ' . $exception->getMessage());
+
+    return 'Northstar cannot access your account right now. Please try again shortly.';
+}

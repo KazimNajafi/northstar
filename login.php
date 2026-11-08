@@ -35,11 +35,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $error = 'That email and password combination was not recognized.';
-        } catch (RuntimeException $exception) {
-            $error = $exception->getMessage();
         } catch (PDOException $exception) {
-            error_log('Login failed: ' . $exception->getMessage());
-            $error = 'We could not sign you in right now. Please try again shortly.';
+            $error = database_error_message($exception);
+        } catch (RuntimeException $exception) {
+            $error = database_error_message($exception);
         }
     }
 }

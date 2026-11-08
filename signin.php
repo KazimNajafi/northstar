@@ -59,16 +59,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 header('Location: home.php');
                 exit;
             }
-        } catch (RuntimeException $exception) {
-            $error = $exception->getMessage();
         } catch (PDOException $exception) {
-            error_log('Registration failed: ' . $exception->getMessage());
-
             if ($exception->getCode() === '23000') {
                 $error = 'An account with that email or username already exists.';
             } else {
-                $error = 'We could not create your account. Please try again shortly.';
+                $error = database_error_message($exception);
             }
+        } catch (RuntimeException $exception) {
+            $error = database_error_message($exception);
         }
     }
 }
