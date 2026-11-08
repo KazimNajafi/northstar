@@ -29,3 +29,32 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 });
+
+document.addEventListener('DOMContentLoaded', () => {
+    const bookingForm = document.querySelector('[data-price-per-person]');
+
+    if (!bookingForm) {
+        return;
+    }
+
+    const pricePerPerson = Number.parseFloat(bookingForm.dataset.pricePerPerson || '0');
+    const guestInput = bookingForm.querySelector('[data-guest-input]');
+    const totalTarget = bookingForm.querySelector('[data-booking-total]');
+
+    if (!guestInput || !totalTarget || !Number.isFinite(pricePerPerson)) {
+        return;
+    }
+
+    const updateTotal = () => {
+        const guests = Number.parseInt(guestInput.value, 10);
+
+        if (!Number.isFinite(guests) || guests < 1) {
+            return;
+        }
+
+        totalTarget.textContent = 'Rs ' + Math.round(pricePerPerson * guests).toLocaleString('en-US');
+    };
+
+    guestInput.addEventListener('input', updateTotal);
+    updateTotal();
+});
