@@ -1,0 +1,24 @@
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+db.env
+northstar-env.conf
+tests/.env
+tests/.env.*
+!tests/.env.example
+
+# Runtime and logs
+*.log
+*.pid
+*.sqlite
+*.sqlite3
+
+# Editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Test scratch space
+tests/tmp/
